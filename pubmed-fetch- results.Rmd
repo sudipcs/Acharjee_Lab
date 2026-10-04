@@ -1,0 +1,431 @@
+---
+title: "disc_selection"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+date: "2026-05-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Installations for first use:
+```{r}
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("phyloseq")
+
+if(!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("Maaslin2")
+
+install.packages("Matrix")
+install.packages("pgirmess")
+install.packages("agricolae")
+install.packages("ggpubr")
+install.packages("gt")
+install.packages("FSA")
+```
+
+
+#Load libraries and data:
+
+Required libraries:
+```{r}
+library(vegan)
+library (ggplot2)
+library(ggpubr)
+library(data.table)
+library(cowplot)
+library(Maaslin2)
+library(readr)
+library(phyloseq)
+library(pgirmess)
+library(agricolae)
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(gt)
+library(FSA)
+library(writexl)
+library(purrr)
+library(stringr)
+
+library(rentrez)
+library(dplyr)
+library(purrr)
+library(httr)
+library(jsonlite)
+library(rentrez)
+library(xml2)
+library(jsonlite)
+library(httr)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(stringr)
+library(tibble)
+library(openxlsx)
+
+```
+
+
+
+
+
+```{r}
+
+```
+
+
+
+```{r}
+
+```
+
+
+
+```{r}
+library(rentrez)
+library(purrr)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(tidyr)
+
+
+search_term <- paste(
+  "(ulcerative colitis OR inflammatory bowel disease)",
+  "AND",
+  "(colorectal cancer OR colitis-associated cancer)",
+  "AND",
+  '("2020/01/01"[Date - Publication] : "2026/12/31"[Date - Publication])'
+)
+
+search <- entrez_search(
+  db = "pubmed",
+  term = search_term,
+  retmax = 1500,
+  sort = "pub date"
+)
+
+pmids <- search$ids
+
+length(pmids)
+
+fetch_paper <- function(id){
+
+  s <- entrez_summary(db="pubmed", id=id)
+
+  data.frame(
+    PMID = id,
+    Title = s$title,
+    Journal = s$fulljournalname,
+    Year = substr(s$pubdate,1,4),
+    stringsAsFactors = FALSE
+  )
+
+}
+
+papers <- map_dfr(pmids, fetch_paper)
+
+head(papers)
+
+papers %>%
+  count(Year) %>%
+  ggplot(aes(x = Year, y = n))+
+
+  geom_col(fill="steelblue")+
+
+  geom_text(aes(label=n),vjust=-0.4)+
+
+  theme_classic(base_size=14)+
+
+  labs(
+    x="Publication Year",
+    y="Number of Papers"
+  )
+
+papers %>%
+  count(Journal, sort=TRUE) %>%
+  slice(1:15) %>%
+
+  ggplot(aes(reorder(Journal,n),n))+
+
+  geom_col(fill="darkgreen")+
+
+  coord_flip()+
+
+  theme_bw(base_size=13)+
+
+  labs(
+    x="Journal",
+    y="Number of Papers"
+  )
+
+
+```
+
+
+```{r}
+papers$Category <- "Other"
+
+papers$Category[str_detect(tolower(papers$Title),
+                           "endoscopy|colonoscopy|chromoendoscopy|nbi")] <- "Endoscopy"
+
+papers$Category[str_detect(tolower(papers$Title),
+                           "surveillance|screening")] <- "Surveillance"
+
+papers$Category[str_detect(tolower(papers$Title),
+                           "biomarker|marker")] <- "Biomarkers"
+
+papers$Category[str_detect(tolower(papers$Title),
+                           "microbiome|microbiota|16s|metagenom")] <- "Microbiome"
+
+papers$Category[str_detect(tolower(papers$Title),
+                           "rna|transcriptom|gene expression|single-cell")] <- "Transcriptomics"
+
+papers$Category[str_detect(tolower(papers$Title),
+                           "genomic|dna|mutation|sequencing")] <- "Genomics"
+
+papers$Category[str_detect(tolower(papers$Title),
+                           "proteomic|protein")] <- "Proteomics"
+
+papers$Category[str_detect(tolower(papers$Title),
+                           "metabolomic")] <- "Metabolomics"
+
+papers$Category[str_detect(tolower(papers$Title),
+                           "artificial intelligence|machine learning|deep learning|cnn|transformer|ai")] <- "AI"
+
+papers$Category[str_detect(tolower(papers$Title),
+                           "clinical|cohort|patient")] <- "Clinical"
+
+papers$Category[str_detect(tolower(papers$Title),
+                           "histology|pathology|biopsy")] <- "Histology"
+
+
+write.csv(
+  papers,
+  file = "out1/PubMed_Papers.csv",
+  row.names = FALSE
+)
+
+fig1 <- papers %>%
+  count(Year) %>%
+  ggplot(aes(x = Year, y = n)) +
+  geom_col(fill = "steelblue") +
+  geom_text(aes(label = n), vjust = -0.4) +
+  theme_classic(base_size = 14) +
+  labs(
+    x = "Publication Year",
+    y = "Number of Papers",
+    title = "Publication Trend"
+  )
+
+fig1
+
+ggsave(
+  filename = "out1/Figure1_Publication_Trend.png",
+  plot = fig1,
+  width = 8,
+  height = 5,
+  dpi = 300
+)
+
+fig2 <- papers %>%
+  count(Journal, sort = TRUE) %>%
+  slice(1:15) %>%
+  ggplot(aes(reorder(Journal, n), n)) +
+  geom_col(fill = "darkgreen") +
+  coord_flip() +
+  theme_bw(base_size = 13) +
+  labs(
+    x = "Journal",
+    y = "Number of Papers",
+    title = "Top 15 Journals"
+  )
+
+fig2
+
+ggsave(
+  filename = "out1/Figure2_Top_Journals.png",
+  plot = fig2,
+  width = 10,
+  height = 7,
+  dpi = 300
+)
+
+year_summary <- papers %>%
+  count(Year)
+
+write.csv(
+  year_summary,
+  "out1/Publication_by_Year.csv",
+  row.names = FALSE
+)
+
+
+journal_summary <- papers %>%
+  count(Journal, sort = TRUE)
+
+write.csv(
+  journal_summary,
+  "out1/Top_Journals.csv",
+  row.names = FALSE
+)
+```
+
+
+
+
+
+
+
+
+
+
+```{r}
+# Create plot
+# Create plot excluding "Other"
+p <- papers %>%
+  filter(Category != "Other") %>%
+  count(Category) %>%
+  ggplot(aes(reorder(Category, n), n, fill = Category)) +
+  geom_col() +
+  coord_flip() +
+  theme_minimal(base_size = 14) +
+  labs(
+    x = "Research Area",
+    y = "Number of Papers"
+  )
+
+# Show figure
+print(p)
+
+# Show figure
+print(p)
+# Save as PNG
+ggsave(
+  filename = "out1/research_area_papers.png",
+  plot = p,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+
+papers %>%
+  count(Year,Category) %>%
+
+  ggplot(aes(Year,n,fill=Category))+
+
+  geom_col()+
+
+  theme_bw(base_size=14)
+
+
+
+```
+
+
+```{r}
+library(tidytext)
+
+pp <- papers %>%
+  unnest_tokens(word,Title) %>%
+  anti_join(stop_words,by="word") %>%
+  count(word,sort=TRUE) %>%
+  slice(1:20) %>%
+
+  ggplot(aes(reorder(word,n),n))+
+
+  geom_col(fill="orange")+
+
+  coord_flip()+
+
+  theme_bw(base_size=13)
+
+print(pp)
+
+ggsave(
+  filename = "out1/research_topic_papers.png",
+  plot = pp,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+
+write.csv(
+  papers,
+  "IBD_CRC_1500papers.csv",
+  row.names=FALSE
+)
+```
+
+```{r}
+library(dplyr)
+
+papers %>%
+  group_by(Category) %>%
+  summarise(
+    Number_of_Papers = n(),
+    PMIDs = paste(PMID, collapse = ", ")
+  ) -> category_table
+
+category_table
+
+
+```
+
+
+
+
+
+
+
+
+
+```{r}
+library(dplyr)
+
+category_table <- papers %>%
+  group_by(Category) %>%
+  summarise(
+    Number_of_Papers = n(),
+    PMIDs = paste(PMID, collapse = "; "),
+    Years = paste(Year, collapse = "; "),
+    Journals = paste(Journal, collapse = "; "),
+    Titles = paste(Title, collapse = " | "),
+    .groups = "drop"
+  )
+
+category_table
+
+write.csv(category_table,
+          "Category_Summary.csv",
+          row.names = FALSE)
+
+
+```
+
+
+
+```{r}
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+

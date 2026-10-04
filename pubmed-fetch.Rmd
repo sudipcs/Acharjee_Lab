@@ -1,0 +1,731 @@
+---
+title: "disc_selection"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+date: "2026-05-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Installations for first use:
+```{r}
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("phyloseq")
+
+if(!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("Maaslin2")
+
+install.packages("Matrix")
+install.packages("pgirmess")
+install.packages("agricolae")
+install.packages("ggpubr")
+install.packages("gt")
+install.packages("FSA")
+```
+
+
+#Load libraries and data:
+
+Required libraries:
+```{r}
+library(vegan)
+library (ggplot2)
+library(ggpubr)
+library(data.table)
+library(cowplot)
+library(Maaslin2)
+library(readr)
+library(phyloseq)
+library(pgirmess)
+library(agricolae)
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(gt)
+library(FSA)
+library(writexl)
+library(purrr)
+library(stringr)
+
+```
+
+
+```{r}
+# Install packages if needed
+install.packages(c("rentrez", "xml2", "dplyr", "purrr", "stringr", "httr2", "jsonlite"))
+```
+
+
+```{r}
+
+###############################################################################
+# PACKAGES
+###############################################################################
+
+library(rentrez)
+library(dplyr)
+library(purrr)
+library(httr)
+library(jsonlite)
+
+###############################################################################
+# SEARCH TERM
+###############################################################################
+
+search_term <- '
+(ulcerative colitis OR inflammatory bowel disease)
+AND
+(colorectal cancer OR colitis-associated cancer)
+AND
+("2020/01/01"[Date - Publication] : "2026/12/31"[Date - Publication])
+'
+
+###############################################################################
+# SEARCH PUBMED
+###############################################################################
+
+search_results <- entrez_search(
+  db = "pubmed",
+  term = search_term,
+  retmax = 500,               ## change number of papers
+  sort = "pub date"
+)
+
+pmids <- search_results$ids
+
+cat("Found", length(pmids), "papers\n")
+
+###############################################################################
+# FETCH ARTICLE DETAILS
+###############################################################################
+
+fetch_article <- function(pmid){
+
+  tryCatch({
+
+    s <- entrez_summary(
+      db = "pubmed",
+      id = pmid
+    )
+
+    title <- s$title
+
+    pubdate <- s$pubdate
+
+    year <- suppressWarnings(
+      as.numeric(substr(pubdate, 1, 4))
+    )
+
+    tibble(
+      PMID = as.character(pmid),
+      Title = title,
+      Year = year,
+      PubMed_URL = paste0(
+        "https://pubmed.ncbi.nlm.nih.gov/",
+        pmid,
+        "/"
+      )
+    )
+
+  }, error = function(e){
+
+    tibble(
+      PMID = as.character(pmid),
+      Title = NA_character_,
+      Year = NA_real_,
+      PubMed_URL = paste0(
+        "https://pubmed.ncbi.nlm.nih.gov/",
+        pmid,
+        "/"
+      )
+    )
+
+  })
+
+}
+
+###############################################################################
+# BUILD ARTICLE TABLE
+###############################################################################
+
+papers_df <- map_dfr(
+  pmids,
+  fetch_article
+)
+
+###############################################################################
+# PUBTATOR GENE EXTRACTION
+###############################################################################
+
+get_pubtator_genes <- function(pmid){
+
+  url <- paste0(
+    "https://www.ncbi.nlm.nih.gov/research/pubtator-api/publications/export/biocjson?pmids=",
+    pmid
+  )
+
+  tryCatch({
+
+    res <- GET(url)
+
+    if(status_code(res) != 200){
+      return(NA_character_)
+    }
+
+    txt <- content(
+      res,
+      as = "text",
+      encoding = "UTF-8"
+    )
+
+    genes <- c()
+
+    # Simple regex extraction of gene annotations
+    gene_matches <- gregexpr(
+      '"type":"Gene"',
+      txt
+    )[[1]]
+
+    if(gene_matches[1] == -1){
+      return(NA_character_)
+    }
+
+    # Alternative parsing approach
+    obj <- fromJSON(txt, simplifyVector = FALSE)
+
+    if(length(obj$documents) == 0){
+      return(NA_character_)
+    }
+
+    for(doc in obj$documents){
+
+      if(is.null(doc$passages))
+        next
+
+      for(passage in doc$passages){
+
+        if(is.null(passage$annotations))
+          next
+
+        for(ann in passage$annotations){
+
+          if(!is.null(ann$infons$type)){
+
+            if(ann$infons$type == "Gene"){
+
+              genes <- c(
+                genes,
+                ann$text
+              )
+
+            }
+
+          }
+
+        }
+
+      }
+
+    }
+
+    genes <- unique(genes)
+
+    if(length(genes) == 0){
+      return(NA_character_)
+    }
+
+    paste(
+      sort(genes),
+      collapse = "; "
+    )
+
+  }, error = function(e){
+
+    return(NA_character_)
+
+  })
+
+}
+
+###############################################################################
+# EXTRACT GENES
+###############################################################################
+
+cat("Extracting genes...\n")
+
+papers_df$Main_Genes_Pathways <- sapply(
+  papers_df$PMID,
+  get_pubtator_genes
+)
+
+###############################################################################
+# SORT BY YEAR
+###############################################################################
+
+final_df <- papers_df %>%
+  arrange(desc(Year))
+
+###############################################################################
+# SAVE RESULTS
+###############################################################################
+
+write.csv(
+  final_df,
+  "UC_CRC_PubMed_Genes_2020_2026.csv",
+  row.names = FALSE
+)
+
+###############################################################################
+# VIEW RESULTS
+###############################################################################
+
+print(head(final_df, 20))
+
+View(final_df)
+
+```
+
+
+
+# nbew
+
+```{r}
+
+###############################################################################
+# PACKAGES
+###############################################################################
+
+library(rentrez)
+library(xml2)
+library(dplyr)
+library(purrr)
+library(stringr)
+
+###############################################################################
+# SEARCH TERM
+###############################################################################
+
+search_term <- '
+(ulcerative colitis OR inflammatory bowel disease)
+AND
+(colorectal cancer OR colitis-associated cancer)
+AND
+("2020/01/01"[Date - Publication] : "2026/12/31"[Date - Publication])
+'
+
+###############################################################################
+# SEARCH PUBMED (100 PAPERS)
+###############################################################################
+
+search_results <- entrez_search(
+  db = "pubmed",
+  term = search_term,
+  retmax = 100,
+  sort = "pub date"
+)
+
+pmids <- search_results$ids
+
+cat("Found", length(pmids), "papers\n")
+
+###############################################################################
+# FETCH ARTICLE DETAILS + ABSTRACT
+###############################################################################
+
+fetch_article <- function(pmid){
+
+  tryCatch({
+
+    xml_raw <- entrez_fetch(
+      db = "pubmed",
+      id = pmid,
+      rettype = "xml"
+    )
+
+    doc <- read_xml(xml_raw)
+
+    title_node <- xml_find_first(
+      doc,
+      "//ArticleTitle"
+    )
+
+    title <- ifelse(
+      inherits(title_node, "xml_missing"),
+      NA_character_,
+      xml_text(title_node)
+    )
+
+    abstract_nodes <- xml_find_all(
+      doc,
+      "//AbstractText"
+    )
+
+    abstract <- paste(
+      xml_text(abstract_nodes),
+      collapse = " "
+    )
+
+    year_node <- xml_find_first(
+      doc,
+      "//PubDate/Year"
+    )
+
+    year <- ifelse(
+      inherits(year_node, "xml_missing"),
+      NA,
+      as.numeric(xml_text(year_node))
+    )
+
+    tibble(
+
+      PMID = as.character(pmid),
+
+      Title = title,
+
+      Year = year,
+
+      Abstract = abstract,
+
+      PubMed_URL = paste0(
+        "https://pubmed.ncbi.nlm.nih.gov/",
+        pmid,
+        "/"
+      )
+
+    )
+
+  },
+
+  error = function(e){
+
+    tibble(
+
+      PMID = as.character(pmid),
+
+      Title = NA_character_,
+
+      Year = NA_real_,
+
+      Abstract = NA_character_,
+
+      PubMed_URL = paste0(
+        "https://pubmed.ncbi.nlm.nih.gov/",
+        pmid,
+        "/"
+      )
+
+    )
+
+  })
+
+}
+
+###############################################################################
+# BUILD DATASET
+###############################################################################
+
+papers_df <- map_dfr(
+  pmids,
+  fetch_article
+)
+
+###############################################################################
+# UC -> CRC GENE PANEL
+###############################################################################
+
+uc_crc_genes <- c(
+
+  "TP53",
+  "APC",
+  "KRAS",
+  "BRAF",
+  "SMAD4",
+  "PIK3CA",
+  "CTNNB1",
+
+  "IL6",
+  "STAT3",
+  "TNF",
+  "NFKB1",
+  "IL1B",
+
+  "MYC",
+  "EGFR",
+  "CXCL8",
+  "CXCL1",
+
+  "VEGFA",
+  "TGFB1",
+
+  "MMP9",
+  "MUC2"
+
+)
+
+###############################################################################
+# EXTRACT GENES FROM ABSTRACTS
+###############################################################################
+
+extract_uc_crc_genes <- function(text){
+
+  if(
+    is.na(text) ||
+    text == ""
+  ){
+    return(NA_character_)
+  }
+
+  found <- uc_crc_genes[
+
+    sapply(
+
+      uc_crc_genes,
+
+      function(g){
+
+        grepl(
+
+          paste0(
+            "\\b",
+            g,
+            "\\b"
+          ),
+
+          text,
+
+          ignore.case = FALSE
+
+        )
+
+      }
+
+    )
+
+  ]
+
+  if(length(found) == 0){
+
+    return(NA_character_)
+
+  }
+
+  paste(
+
+    unique(found),
+
+    collapse = "; "
+
+  )
+
+}
+
+###############################################################################
+# CREATE GENE COLUMN
+###############################################################################
+
+cat("Extracting genes...\n")
+
+papers_df$Main_Genes_Pathways <- sapply(
+
+  papers_df$Abstract,
+
+  extract_uc_crc_genes
+
+)
+
+###############################################################################
+# FINAL TABLE
+###############################################################################
+
+final_df <- papers_df %>%
+
+  select(
+
+    PMID,
+
+    Title,
+
+    Year,
+
+    PubMed_URL,
+
+    Main_Genes_Pathways
+
+  ) %>%
+
+  arrange(desc(Year))
+
+###############################################################################
+# SAVE RESULTS
+###############################################################################
+
+write.csv(
+
+  final_df,
+
+  "UC_CRC_PubMed_Genes_2020_2026.csv",
+
+  row.names = FALSE
+
+)
+
+###############################################################################
+# VIEW RESULTS
+###############################################################################
+
+print(head(final_df, 20))
+
+View(final_df)
+
+```
+
+
+
+```{r}
+pmid <- final_df$PMID[1]
+
+url <- paste0(
+  "https://www.ncbi.nlm.nih.gov/research/pubtator-api/publications/export/biocjson?pmids=",
+  pmid
+)
+
+library(httr)
+
+res <- GET(url)
+
+status_code(res)
+txt <- content(
+  res,
+  as = "text",
+  encoding = "UTF-8"
+)
+
+cat(substr(txt,1,3000))
+```
+
+
+
+```{r}
+extract_genes <- function(text){
+
+  if(is.na(text))
+    return(NA)
+
+  genes <- stringr::str_extract_all(
+    text,
+    "\\b[A-Z][A-Z0-9]{2,10}\\b"
+  )[[1]]
+
+  blacklist <- c(
+    "DNA","RNA","CRC","UC",
+    "IBD","USA","COVID",
+    "PCR","RNASEQ"
+  )
+
+  genes <- unique(genes)
+
+  genes <- genes[
+    !genes %in% blacklist
+  ]
+
+  if(length(genes)==0)
+    return(NA)
+
+  paste(genes, collapse="; ")
+}
+
+
+library(xml2)
+
+fetch_article <- function(pmid){
+
+  tryCatch({
+
+    xml_raw <- entrez_fetch(
+      db="pubmed",
+      id=pmid,
+      rettype="xml"
+    )
+
+    doc <- read_xml(xml_raw)
+
+    title <- xml_text(
+      xml_find_first(
+        doc,
+        "//ArticleTitle"
+      )
+    )
+
+    abstract <- paste(
+      xml_text(
+        xml_find_all(
+          doc,
+          "//AbstractText"
+        )
+      ),
+      collapse=" "
+    )
+
+    year <- xml_text(
+      xml_find_first(
+        doc,
+        "//PubDate/Year"
+      )
+    )
+
+    tibble(
+      PMID = pmid,
+      Title = title,
+      Year = suppressWarnings(
+        as.numeric(year)
+      ),
+      Abstract = abstract,
+      PubMed_URL = paste0(
+        "https://pubmed.ncbi.nlm.nih.gov/",
+        pmid,
+        "/"
+      )
+    )
+
+  }, error=function(e){
+
+    tibble(
+      PMID = pmid,
+      Title = NA_character_,
+      Year = NA_real_,
+      Abstract = NA_character_,
+      PubMed_URL = paste0(
+        "https://pubmed.ncbi.nlm.nih.gov/",
+        pmid,
+        "/"
+      )
+    )
+
+  })
+
+}
+
+
+```
+
+
+
+
+```{r}
+
+```
+
+
+
+
+
+
+
+

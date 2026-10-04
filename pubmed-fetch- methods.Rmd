@@ -1,0 +1,758 @@
+---
+title: "disc_selection"
+output:
+  html_document: default
+  word_document: default
+  pdf_document: default
+date: "2026-05-26"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+#Installations for first use:
+```{r}
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("phyloseq")
+
+if(!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("Maaslin2")
+
+install.packages("Matrix")
+install.packages("pgirmess")
+install.packages("agricolae")
+install.packages("ggpubr")
+install.packages("gt")
+install.packages("FSA")
+```
+
+
+#Load libraries and data:
+
+Required libraries:
+```{r}
+library(vegan)
+library (ggplot2)
+library(ggpubr)
+library(data.table)
+library(cowplot)
+library(Maaslin2)
+library(readr)
+library(phyloseq)
+library(pgirmess)
+library(agricolae)
+library(readxl)
+library(dplyr)
+library(tidyr)
+library(gt)
+library(FSA)
+library(writexl)
+library(purrr)
+library(stringr)
+
+library(rentrez)
+library(dplyr)
+library(purrr)
+library(httr)
+library(jsonlite)
+library(rentrez)
+library(xml2)
+library(jsonlite)
+library(httr)
+library(dplyr)
+library(tidyr)
+library(purrr)
+library(stringr)
+library(tibble)
+library(openxlsx)
+
+```
+
+
+
+
+
+```{r}
+library(rentrez)
+library(purrr)
+library(dplyr)
+library(stringr)
+library(ggplot2)
+library(tidyr)
+
+
+# Create output folder
+dir.create("out3", showWarnings = FALSE)
+
+
+# PubMed search:
+# UC/IBD + colorectal cancer + early detection + AI/ML/DL
+
+search_term <- paste(
+  
+  "(ulcerative colitis OR inflammatory bowel disease OR IBD)",
+  
+  "AND",
+  
+  "(Dysplasia OR colorectal cancer OR colitis-associated cancer OR colorectal neoplasia)",
+  
+  "AND",
+  
+  "(early detection OR early diagnosis OR screening OR surveillance OR prediction OR risk prediction OR diagnostic model OR biomarker)",
+  
+  "AND",
+  
+  "(Statistical model OR artificial intelligence OR AI OR machine learning OR deep learning OR neural network OR random forest OR XGBoost OR support vector machine OR transformer OR CNN)",
+  
+  "AND",
+  
+  '("2020/01/01"[Date - Publication] : "2026/12/31"[Date - Publication])'
+  
+)
+
+
+search <- entrez_search(
+  db = "pubmed",
+  term = search_term,
+  retmax = 1500,
+  sort = "pub date"
+)
+
+
+pmids <- search$ids
+
+length(pmids)
+
+
+
+# Fetch papers
+
+fetch_paper <- function(id){
+
+  s <- entrez_summary(
+    db="pubmed",
+    id=id
+  )
+
+  data.frame(
+    PMID = id,
+    Title = s$title,
+    Journal = s$fulljournalname,
+    Year = substr(s$pubdate,1,4),
+    stringsAsFactors = FALSE
+  )
+
+}
+
+
+papers <- map_dfr(pmids, fetch_paper)
+
+
+head(papers)
+
+
+
+# Categorize AI methods
+
+papers$AI_Method <- "Other"
+
+
+papers$AI_Method[
+  str_detect(
+    tolower(papers$Title),
+    "machine learning|ml"
+  )
+] <- "Machine Learning"
+
+
+papers$AI_Method[
+  str_detect(
+    tolower(papers$Title),
+    "deep learning|neural network|cnn|transformer"
+  )
+] <- "Deep Learning"
+
+
+
+papers$AI_Method[
+  str_detect(
+    tolower(papers$Title),
+    "artificial intelligence| ai "
+  )
+] <- "Artificial Intelligence"
+
+
+
+papers$AI_Method[
+  str_detect(
+    tolower(papers$Title),
+    "random forest"
+  )
+] <- "Random Forest"
+
+
+
+papers$AI_Method[
+  str_detect(
+    tolower(papers$Title),
+    "xgboost|gradient boosting"
+  )
+] <- "XGBoost"
+
+
+
+papers$AI_Method[
+  str_detect(
+    tolower(papers$Title),
+    "support vector|svm"
+  )
+] <- "SVM"
+
+
+
+
+# Early detection category
+
+papers$Detection_Type <- "Other"
+
+
+papers$Detection_Type[
+  str_detect(
+    tolower(papers$Title),
+    "screening|surveillance"
+  )
+] <- "Screening/Surveillance"
+
+
+
+papers$Detection_Type[
+  str_detect(
+    tolower(papers$Title),
+    "early detection|early diagnosis"
+  )
+] <- "Early Detection"
+
+
+
+papers$Detection_Type[
+  str_detect(
+    tolower(papers$Title),
+    "prediction|risk prediction"
+  )
+] <- "Prediction"
+
+
+
+papers$Detection_Type[
+  str_detect(
+    tolower(papers$Title),
+    "biomarker|marker"
+  )
+] <- "Biomarker"
+
+
+
+# Save complete dataset
+
+write.csv(
+  papers,
+  file="out3/PubMed_AI_EarlyDetection_IBD_CRC.csv",
+  row.names=FALSE
+)
+
+
+
+##############################
+# Figure 1 Publication Trend
+##############################
+
+fig1 <- papers %>%
+  count(Year) %>%
+  ggplot(
+    aes(x=Year,y=n)
+  )+
+  geom_col(fill="steelblue")+
+  geom_text(
+    aes(label=n),
+    vjust=-0.4
+  )+
+  theme_classic(base_size=14)+
+  labs(
+    title="AI-based Early Detection of IBD-associated Colorectal Cancer",
+    x="Publication Year",
+    y="Number of Publications"
+  )
+
+
+ggsave(
+  "out3/Figure1_Publication_Trend.png",
+  fig1,
+  width=8,
+  height=5,
+  dpi=300
+)
+
+
+
+##############################
+# Figure 2 AI Method Distribution
+##############################
+
+fig2 <- papers %>%
+  count(AI_Method, sort=TRUE) %>%
+  ggplot(
+    aes(
+      reorder(AI_Method,n),
+      n
+    )
+  )+
+  geom_col(fill="darkred")+
+  coord_flip()+
+  theme_bw(base_size=13)+
+  labs(
+    title="AI Methods Used for Early Detection",
+    x="AI Method",
+    y="Number of Papers"
+  )
+
+
+ggsave(
+  "out3/Figure2_AI_Methods.png",
+  fig2,
+  width=8,
+  height=5,
+  dpi=300
+)
+
+
+
+##############################
+# Figure 3 Detection Strategy
+##############################
+
+fig3 <- papers %>%
+  count(Detection_Type, sort=TRUE) %>%
+  ggplot(
+    aes(
+      reorder(Detection_Type,n),
+      n
+    )
+  )+
+  geom_col(fill="darkgreen")+
+  coord_flip()+
+  theme_classic(base_size=14)+
+  labs(
+    title="Early Detection Approaches",
+    x="Detection Strategy",
+    y="Number of Papers"
+  )
+
+
+ggsave(
+  "out3/Figure3_Detection_Strategy.png",
+  fig3,
+  width=8,
+  height=5,
+  dpi=300
+)
+
+
+
+##############################
+# Summary tables
+##############################
+
+write.csv(
+  papers %>% count(Year),
+  "out3/Publications_by_Year.csv",
+  row.names=FALSE
+)
+
+
+
+write.csv(
+  papers %>% count(AI_Method, sort=TRUE),
+  "out3/AI_Method_Summary.csv",
+  row.names=FALSE
+)
+
+
+
+write.csv(
+  papers %>% count(Detection_Type, sort=TRUE),
+  "out3/Early_Detection_Summary.csv",
+  row.names=FALSE
+)
+
+
+
+write.csv(
+  papers %>% count(Journal, sort=TRUE),
+  "out3/Journal_Summary.csv",
+  row.names=FALSE
+)
+
+
+
+##############################
+# Export only AI papers
+##############################
+
+AI_papers <- papers %>%
+  filter(
+    AI_Method!="Other"
+  )
+
+
+write.csv(
+  AI_papers,
+  "out3/AI_only_EarlyDetection_Papers.csv",
+  row.names=FALSE
+)
+
+
+
+print(head(AI_papers))
+```
+
+
+
+```{r}
+##########################################
+# Research Area Classification for AI Early Detection
+##########################################
+
+papers$Research_Area <- "Other"
+
+
+papers$Research_Area[
+  str_detect(
+    tolower(papers$Title),
+    "artificial intelligence|machine learning|deep learning|neural network|random forest|xgboost|svm|transformer|cnn"
+  )
+] <- "AI / Machine Learning"
+
+
+# Proteomics
+papers$Research_Area[
+  str_detect(
+    tolower(papers$Title),
+    "proteomic|proteomics|protein|mass spectrometry|lc-ms|lc/ms|ms/ms|tmt|dia|swath|aptamer"
+  )
+] <- "Proteomics"
+
+
+papers$Research_Area[
+  str_detect(
+    tolower(papers$Title),
+    "screening|surveillance|colonoscopy|endoscopy|chromoendoscopy|nbi"
+  )
+] <- "Screening / Surveillance"
+
+
+papers$Research_Area[
+  str_detect(
+    tolower(papers$Title),
+    "prediction|risk model|risk score|nomogram|diagnostic model"
+  )
+] <- "Prediction Models"
+
+
+papers$Research_Area[
+  str_detect(
+    tolower(papers$Title),
+    "microbiome|microbiota|16s|metagenomic"
+  )
+] <- "Microbiome"
+
+
+papers$Research_Area[
+  str_detect(
+    tolower(papers$Title),
+    "rna|transcriptomic|gene expression|single cell"
+  )
+] <- "Transcriptomics"
+
+
+papers$Research_Area[
+  str_detect(
+    tolower(papers$Title),
+    "genomic|mutation|dna|sequencing"
+  )
+] <- "Genomics"
+
+
+papers$Research_Area[
+  str_detect(
+    tolower(papers$Title),
+    "histology|pathology|image analysis|digital pathology"
+  )
+] <- "Histology / Pathology"
+
+
+papers$Research_Area[
+  str_detect(
+    tolower(papers$Title),
+    "clinical|cohort|patient"
+  )
+] <- "Clinical"
+
+
+
+##########################################
+# Plot 1: Research Area Distribution
+##########################################
+
+p <- papers %>%
+  filter(Research_Area != "Other") %>%
+  count(Research_Area, sort=TRUE) %>%
+  ggplot(
+    aes(
+      reorder(Research_Area,n),
+      n,
+      fill=Research_Area
+    )
+  ) +
+  geom_col() +
+  coord_flip() +
+  theme_minimal(base_size=14) +
+  labs(
+    x="Research Area",
+    y="Number of Papers",
+    title="Areas in AI-based Early Detection of IBD-associated CRC"
+  )
+
+
+print(p)
+
+
+ggsave(
+  filename="out3/research_area_AI_early_detection.png",
+  plot=p,
+  width=10,
+  height=6,
+  dpi=300
+)
+
+
+
+##########################################
+# Plot 2: Research Area Trend Over Years
+##########################################
+
+p_year <- papers %>%
+  filter(Research_Area!="Other") %>%
+  count(Year, Research_Area) %>%
+  
+  ggplot(
+    aes(
+      Year,
+      n,
+      fill=Research_Area
+    )
+  ) +
+  geom_col() +
+  theme_bw(base_size=14) +
+  labs(
+    x="Publication Year",
+    y="Number of Papers",
+    fill="Research Area",
+    title="Trends of AI-based Early Detection Research"
+  )
+
+
+print(p_year)
+
+
+
+ggsave(
+  filename="out3/research_area_by_year_AI.png",
+  plot=p_year,
+  width=10,
+  height=6,
+  dpi=300
+)
+```
+
+
+
+
+2 17
+2. Scientist-II (CRU)  4
+
+## end
+
+
+
+
+
+```{r}
+library(tidytext)
+
+
+############################################
+# Keyword frequency analysis from titles
+############################################
+
+biomed_stopwords <- data.frame(
+  word = c(
+    "patient",
+    "patients",
+    "study",
+    "studies",
+    "using",
+    "based",
+    "associated",
+    "analysis",
+    "clinical",
+    "data",
+    "model",
+    "models",
+    "review",
+    "new",
+    "role",
+    "approach"
+  )
+)
+
+
+
+pp <- papers %>%
+  
+  unnest_tokens(
+    word,
+    Title
+  ) %>%
+  
+  anti_join(
+    stop_words,
+    by="word"
+  ) %>%
+  
+  anti_join(
+    biomed_stopwords,
+    by="word"
+  ) %>%
+  
+  count(
+    word,
+    sort=TRUE
+  ) %>%
+  
+  slice(1:20) %>%
+  
+  ggplot(
+    aes(
+      reorder(word,n),
+      n
+    )
+  )+
+  
+  geom_col(
+    fill="orange"
+  )+
+  
+  coord_flip()+
+  
+  theme_bw(
+    base_size=13
+  )+
+  
+  labs(
+    x="Keywords",
+    y="Number of Publications",
+    title="Key-words in Early Detection of IBD-associated CRC"
+  )
+
+
+print(pp)
+
+
+
+############################################
+# Save figure
+############################################
+
+ggsave(
+  filename = "out3/Research_Topic_Keywords_AI_EarlyDetection.png",
+  plot = pp,
+  width = 8,
+  height = 6,
+  dpi = 300
+)
+
+
+
+############################################
+# Save final dataset
+############################################
+
+write.csv(
+  papers,
+  "out3/IBD_CRC_AI_EarlyDetection_PubMed_Papers.csv",
+  row.names=FALSE
+)
+
+
+```
+
+```{r}
+
+
+
+```
+
+
+
+
+
+
+
+
+
+```{r}
+library(dplyr)
+
+category_table <- papers %>%
+  group_by(Category) %>%
+  summarise(
+    Number_of_Papers = n(),
+    PMIDs = paste(PMID, collapse = "; "),
+    Years = paste(Year, collapse = "; "),
+    Journals = paste(Journal, collapse = "; "),
+    Titles = paste(Title, collapse = " | "),
+    .groups = "drop"
+  )
+
+category_table
+
+write.csv(category_table,
+          "Category_Summary.csv",
+          row.names = FALSE)
+
+
+```
+
+
+
+```{r}
+
+
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
